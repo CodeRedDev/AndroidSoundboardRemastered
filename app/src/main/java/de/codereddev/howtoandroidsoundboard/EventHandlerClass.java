@@ -7,6 +7,7 @@ import android.content.Context;
 import android.content.DialogInterface;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.database.Cursor;
 import android.media.MediaPlayer;
 import android.media.RingtoneManager;
 import android.net.Uri;
@@ -308,15 +309,15 @@ public class EventHandlerClass {
 
                                                      // Ringtone
                                                      case 0:
-                                                         changeSystemAudio(context, fileName, file, 1);
+                                                         changeSystemAudio(context, RingtoneManager.TYPE_RINGTONE, file);
                                                          break;
                                                      // Notification
                                                      case 1:
-                                                         changeSystemAudio(context, fileName, file, 2);
+                                                         changeSystemAudio(context, RingtoneManager.TYPE_NOTIFICATION, file);
                                                          break;
                                                      // Alarmton
                                                      case 2:
-                                                         changeSystemAudio(context, fileName, file, 3);
+                                                         changeSystemAudio(context, RingtoneManager.TYPE_ALARM, file);
                                                          break;
                                                      default:
                                                  }
@@ -349,78 +350,60 @@ public class EventHandlerClass {
         popup.show();
     }
 
-    /**
-     * Saves a sound as a system audio file.
-     *
-     * @param context  Context of the current activity.
-     * @param fileName Name that is used to save the file.
-     * @param file     File to save as system audio.
-     * @param action   Defines as what kind of system audio the file should be saved.
-     */
-    private static void changeSystemAudio(Context context, String fileName, File file, int action) {
+    private static void changeSystemAudio(Context context, int type, File file) {
 
+        ContentValues values = new ContentValues();
+        values.put(MediaStore.MediaColumns.DATA, file.getAbsolutePath());
+        values.put(MediaStore.MediaColumns.TITLE, file.getName());
+        values.put(MediaStore.MediaColumns.MIME_TYPE, "audio/mp3");
+        values.put(MediaStore.Audio.Media.ARTIST, "HandOfBlood");
+        values.put(MediaStore.Audio.Media.IS_RINGTONE, true);
+        values.put(MediaStore.Audio.Media.IS_NOTIFICATION, true);
+        values.put(MediaStore.Audio.Media.IS_ALARM, true);
+        values.put(MediaStore.Audio.Media.IS_MUSIC, false);
+        values.put(MediaStore.Audio.Media.IS_PODCAST, false);
+
+        final Uri baseUri = MediaStore.Audio.Media.getContentUriForPath(file.getAbsolutePath());
+        Uri toneUri = getUriForExistingTone(context, baseUri, file.getAbsolutePath());
+        if (toneUri == null) {
+            toneUri = context.getContentResolver().insert(baseUri, values);
+        }
+        RingtoneManager.setActualDefaultRingtoneUri(context, type, toneUri);
+    }
+
+    /**
+     * Calculates a URI for an existing tone.
+     *
+     * @param context Context of the current activity.
+     * @param uri Base URI to the tone.
+     * @param filePath Path of the file that is linked to the tone.
+     * @return The URI of the existing tone or null if it does not exist.
+     */
+    private static Uri getUriForExistingTone(Context context, Uri uri, String filePath) {
+
+        Cursor cursor = null;
         try {
 
-            // Put all informations about the audio into ContentValues
-            ContentValues values = new ContentValues();
+            cursor = context.getContentResolver()
+                    .query(uri,
+                            new String[] {MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DATA},
+                            MediaStore.MediaColumns.DATA + " = ?",
+                            new String[] {filePath},
+                            null, null);
 
-            // DATA stores the path to the file on disk
-            values.put(MediaStore.MediaColumns.DATA, file.getAbsolutePath());
-            // TITLE stores... guess what? Right, the title. GENIUS
-            values.put(MediaStore.MediaColumns.TITLE, fileName);
-            // MIME_TYPE stores the type of the data send via the MediaProvider
-            values.put(MediaStore.MediaColumns.MIME_TYPE, "audio/*");
+            if (cursor != null && cursor.getCount() != 0) {
 
-            switch (action) {
-
-                // Ringtone
-                case 1:
-                    values.put(MediaStore.Audio.Media.IS_RINGTONE, true);
-                    break;
-                // Notification
-                case 2:
-                    values.put(MediaStore.Audio.Media.IS_NOTIFICATION, true);
-                    break;
-                // Alarm
-                case 3:
-                    values.put(MediaStore.Audio.Media.IS_ALARM, true);
-                    break;
-                default:
+                cursor.moveToFirst();
+                int mediaPos = cursor.getInt(cursor.getColumnIndex(MediaStore.MediaColumns._ID));
+                return Uri.parse(uri.toString() + "/" + mediaPos);
             }
-
-            // Define the uri to save as system tone
-            Uri uri = MediaStore.Audio.Media.getContentUriForPath(file.getAbsolutePath());
-            // Delete the existing row in the MediaStore database
-            context.getContentResolver()
-                   .delete(uri, MediaStore.MediaColumns.DATA + "=\"" + file.getAbsolutePath() + "\"", null);
-            // Insert the new row with the ContentValues
-            Uri finalUri = context.getContentResolver().insert(uri, values);
-
-            // Finally set the audio as one of the system audio types
-            switch (action) {
-
-                // Ringtone
-                case 1:
-                    RingtoneManager
-                        .setActualDefaultRingtoneUri(context, RingtoneManager.TYPE_RINGTONE, finalUri);
-                    break;
-                // Notification
-                case 2:
-                    RingtoneManager
-                        .setActualDefaultRingtoneUri(context, RingtoneManager.TYPE_NOTIFICATION, finalUri);
-                    break;
-                // Alarm
-                case 3:
-                    RingtoneManager
-                        .setActualDefaultRingtoneUri(context, RingtoneManager.TYPE_ALARM, finalUri);
-                    break;
-                default:
+        } catch (Exception e) {
+            e.printStackTrace();
+        } finally {
+            if (cursor != null) {
+                cursor.close();
             }
-
-        } catch (IllegalArgumentException | NullPointerException e) {
-
-            // Log error if process failed
-            Log.e(LOG_TAG, "Failed to save as system tone: " + e.getMessage());
         }
+        return null;
     }
 }
